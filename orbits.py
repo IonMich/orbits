@@ -1012,16 +1012,18 @@ if __name__ == "__main__":
     # )
 
     #### bounded solar system ######
-    while True:
-        solar_system = StarSystem.random_solar_system(
-            n_objects=3,
-            step_size=1E-6,
-        )
-        if solar_system.get_total_energy() < 0:
-            break
+    # while True:
+    #     solar_system = StarSystem.random_solar_system(
+    #         n_objects=3,
+    #         step_size=1E-6,
+    #     )
+    #     if solar_system.get_total_energy() < 0:
+    #         break
 
     ###### Our solar system ######
-    # solar_system = StarSystem.our_solar_system(step_size=1E-3)
+    solar_system = StarSystem.our_solar_system(
+        t0='1945-01-01',
+        step_size=1E-3)
 
 
 
