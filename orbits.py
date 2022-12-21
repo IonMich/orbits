@@ -697,7 +697,7 @@ class StarSystem:
         return solar_system
 
 
-    def plot_orbits(self, t_0, t_end, indices=None, keep_points=None, real_time=False, mark_every_dt=None, save=False, adaptive=True, relative_error=1E-5):
+    def plot_orbits(self, t_0, t_end, indices=None, keep_points=None, real_time=False, resample_every_dt=1, mark_every_dt=None, animated=False, save=False, adaptive=True, relative_error=1E-5):
         """
         Plot the animation of the solar system
         Add a pause/continue button to the animation
@@ -810,6 +810,13 @@ class StarSystem:
         ax_dE.set_xscale("log")
         ax_dE.set_ylim(1E-20, 1E3)
         ax_dE.set_xlim(t_0, t_end)
+
+        ## Create the pause/continue button
+        pause = False
+        def onClick(event):
+            nonlocal pause
+            pause ^= True
+        fig.canvas.mpl_connect("button_press_event", onClick)
         
 
         ## Create the progress bar
@@ -842,16 +849,53 @@ class StarSystem:
             x_data = positions[:, :, 0]
             y_data = positions[:, :, 1]
 
-            for i, line_idx in enumerate(indices):
-                lines[line_idx].set_data(x_data[:, i], y_data[:, i])
+            
+            if resample_every_dt is not None:
+                # use np.interp to resample the data at regular intervals of resample_every_dt
+                # the new times are the multiples of resample_every_dt that are smaller than the last time
+                new_times = np.arange(times[0], times[-1], resample_every_dt)
+                new_x_data = np.zeros((len(new_times), len(indices)))
+                new_y_data = np.zeros((len(new_times), len(indices)))
+                for i, line_idx in enumerate(indices):
+                    new_x_data[:, i] = np.interp(new_times, times, x_data[:, i])
+                    new_y_data[:, i] = np.interp(new_times, times, y_data[:, i])
+                energies = np.interp(new_times, times, energies)
+                times = new_times
+                x_data = new_x_data
+                y_data = new_y_data
 
-            # find the indices of times that are just above multiples of mark_every_dt
-            # to do that, calculate the remainder of the division of times by mark_every_dt
-            # and find the indices of the elements that are at a local minimum:
-            special_indices_dt = np.where(np.diff(np.mod(times, mark_every_dt)) < 0)[0] + 1
-            x_special = x_data[special_indices_dt, :].flatten()
-            y_special = y_data[special_indices_dt, :].flatten()
-            special_points.set_offsets(np.array([x_special, y_special]).T)
+            animated = True
+            if not animated:
+                for i, line_idx in enumerate(indices):
+                    lines[line_idx].set_data(x_data[:, i], y_data[:, i])
+                
+            else:
+                def animate(i):
+                    if pause:
+                        return *lines, line
+                    for j, line_idx in enumerate(indices):
+                        lines[line_idx].set_data(x_data[i, j], y_data[i, j])
+                    line.set_data(times[:i], abs(energies[:i] - initial_energy)/abs(initial_energy))
+                    return *lines, line
+
+                anim = animation.FuncAnimation(fig, animate, frames=len(times), interval=40, blit=True)
+                if save:
+                    from matplotlib.animation import PillowWriter
+                    anim.save(f"{self.name}.gif", dpi=150, writer=PillowWriter(fps=25))
+                plt.show()
+                return anim
+
+            
+            if mark_every_dt is not None:
+                # find the indices of times that are just above multiples of mark_every_dt
+                # to do that, calculate the remainder of the division of times by mark_every_dt
+                # and find the indices of the elements that are at a local minimum:
+                special_indices_dt = np.where(np.diff(np.mod(times, mark_every_dt)) < 0)[0] + 1
+                x_special = x_data[special_indices_dt, :].flatten()
+                y_special = y_data[special_indices_dt, :].flatten()
+                special_points.set_offsets(np.array([x_special, y_special]).T)
+
+            
             
             line.set_data(times, abs(energies - initial_energy)/abs(initial_energy))
             plt.show()
@@ -860,13 +904,6 @@ class StarSystem:
 
         title = ax.text(0.5, 0.9, 'Initializing...', horizontalalignment='center',
             verticalalignment='center', transform=ax.transAxes)
-
-        ## Create the pause/continue button
-        pause = False
-        def onClick(event):
-            nonlocal pause
-            pause ^= True
-        fig.canvas.mpl_connect("button_press_event", onClick)
 
         def animate(i, adaptive):
             # If pbar.n is greater than t_end, stop the animation
@@ -977,10 +1014,10 @@ if __name__ == "__main__":
     #     step_size=50,
     # )
 
-    ##### bounded solar system ######
+    #### bounded solar system ######
     while True:
         solar_system = StarSystem.random_solar_system(
-            n_objects=2,
+            n_objects=3,
             step_size=1E-6,
         )
         if solar_system.get_total_energy() < 0:
@@ -993,16 +1030,26 @@ if __name__ == "__main__":
 
     ## Evolve the solar system for a number of days
     t = 0
-    t_end = 3.5 * 365.25
+    duration =  0.25 # years
+    t_end = t + duration * 365.25
 
     # indices of the objects to plot trails
+    # if None and real_time is False, plot trails for all objects
+    # if None and real_time is True, don't plot any trails
     indices = None
 
-    # keep_points is the number of points to keep in the plot for `indices`. If None, keep all. Ignored if real_time is False
+    # keep_points is the number of points to keep in the plot for `indices`. If None, keep all. Ignored if real_time is False 
     keep_points = "all"
 
+    # resample_every_dt is the number of days between each point when real_time is False
+    # Default is 1 day. Ignored if real_time is True
+    resample_every_dt = 0.5 # in days
+
+    # animated is whether to animate the plot when real_time is False    
+    animated=True
+
     # mark_every_dt is the number of days between each black point in the energy plot
-    mark_every_dt = 1 * 365.25
+    mark_every_dt = 4 * 365.25
 
     # real_time is whether to plot as you evolve or precompute the entire evolution and then plot
     # It is usually much faster to precompute the evolution and then plot
@@ -1012,7 +1059,18 @@ if __name__ == "__main__":
     # relative_error is the relative error to use for adaptive step size
     # if you evolve quasi-steady systems, a value of ~1E-5 should be fine
     # if you evolve chaotic systems, this should be much smaller, e.g. 1E-10
-    relative_error = 1E-8
+    relative_error = 1E-10
 
     ## Animate the orbits
-    solar_system.plot_orbits(t, t_end, indices=indices, keep_points=keep_points, mark_every_dt=mark_every_dt, real_time=real_time, save=False, adaptive=True, relative_error=relative_error)
+    solar_system.plot_orbits(
+        t, 
+        t_end, 
+        indices=indices, 
+        keep_points=keep_points, 
+        resample_every_dt=resample_every_dt,
+        animated=animated,
+        mark_every_dt=mark_every_dt, 
+        real_time=real_time,
+        save=True, 
+        adaptive=True, 
+        relative_error=relative_error)
