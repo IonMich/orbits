@@ -12,8 +12,11 @@ import matplotlib.animation as animation
 import matplotlib.lines as mlines
 import random
 
-M_sun = 1.0             ## Mass of Earth's Sun in Solar Masses
-G = 0.000296005155      ## Gravitational Constant in AU^3 per Solar Masses per Days^2
+# all masses are in solar masses
+# all distances are in AU
+# all times are in days
+M_sun = 1.0
+G = 0.000295912208
 M_jupiter = 1/1047.93 * M_sun
 
 def cm_color():
@@ -92,9 +95,9 @@ class StarSystem:
     """
     Class to simulate a solar system with stars and planets
     """
-    def __init__(self, name, astro_objects=[], phase_space=None, masses=None, evolve_method="S4", step_size=0.001):
+    def __init__(self, name, astro_objects=[], phase_space=None, masses=None, n_dim=2, evolve_method="S4", step_size=0.001):
         self.name = str(name)
-        self.n_dim = 2
+        self.n_dim = n_dim
         self.astro_objects = []
         self.step_size = step_size
         
@@ -245,7 +248,7 @@ class StarSystem:
         Return the array of the pairwise separations of the list of AstroObject instances
         in the same star system. Each separation is an array of length equal to self.n_dim
         """
-        num_objs = len(self.astro_objects)
+        num_objs = len(self.masses)
         positions = self.phase_space[:self.phase_space.size//2].reshape(num_objs, self.n_dim)
         # separations[i,j] is the separation vector pointing from the jth object to the ith object,
         # i.e. separations[i,j] = positions[i] - positions[j]
@@ -260,10 +263,10 @@ class StarSystem:
         """
         separations, distances = self.get_pairwise_separations()
         
-        G_over_r3 = G/distances**3
+        G_over_r3 = G* np.divide(1, distances**3, out=np.zeros_like(distances), where=distances!=0)
         acceleration_components = - G_over_r3[:,:,np.newaxis] * separations * self.masses[np.newaxis,:,np.newaxis]
         
-        accelerations = np.nansum(acceleration_components,axis=1) 
+        accelerations = np.nansum(acceleration_components, axis=1) 
         
         # flatten the array of accelerations
         accelerations = accelerations.flatten()
@@ -290,7 +293,7 @@ class StarSystem:
         """
         Return the kinetic energy of the star system
         """
-        velocities = self.phase_space[self.phase_space.size//2:].reshape(len(self.astro_objects), self.n_dim)
+        velocities = self.phase_space[self.phase_space.size//2:].reshape(len(self.masses), self.n_dim)
         kinetic_energy = 0.5 * np.sum(self.masses * np.sum(velocities**2, axis=1))
         return kinetic_energy
 
@@ -302,8 +305,8 @@ class StarSystem:
         # note that distances includes the distance from each object to itself, which is zero.
         # so we should sum over only the upper triangular part of the matrix, excluding the diagonal
         energy = 0
-        for i in range(len(self.astro_objects)):
-            for j in range(i+1,len(self.astro_objects)):
+        for i in range(len(self.masses)):
+            for j in range(i+1,len(self.masses)):
                 energy += - G * self.masses[i] * self.masses[j] / distances[i,j]
         return energy
 
@@ -315,7 +318,7 @@ class StarSystem:
 
     def rk4(self, inplace=True):
         """
-        Implement RK4 to evolve myRi by h
+        Implement RK4 to evolve the phase space by dt=self.step_size
         """
         h = self.step_size
         original_configurations = self.phase_space.copy()
@@ -435,7 +438,10 @@ class StarSystem:
 
         original_configurations = self.phase_space.copy()
 
-        positions, velocities = self.phase_space.copy()[:self.phase_space.size//2], self.phase_space.copy()[self.phase_space.size//2:]
+        positions, velocities = (
+            self.phase_space.copy()[:self.phase_space.size//2], 
+            self.phase_space.copy()[self.phase_space.size//2:]
+            )
 
         for i in range(4):
             accelerations = self.get_accelerations()
@@ -450,40 +456,41 @@ class StarSystem:
 
         return new_phase_space
     
-    def adaptStep(self, relError=1E-6, inplace=True):
+    def adapt_step(self, relative_error=1E-5, inplace=True):
         """
-        Adapt the step size to reduce local error to some specified relative error (in our case 1E-3)
-        The relative error is specifically calculated on the total energy of the system
+        Adapt the step size to reduce local error in positions to some specified relative error
         """
         h = self.step_size
         ## Evolve with two steps of h
         original_configurations = self.phase_space.copy()
         self.evolve(inplace=True)
         self.evolve(inplace=True)
-        positions = self.phase_space.copy()[:self.phase_space.size//2].reshape(len(self.astro_objects), self.n_dim)
-        energy1 = self.get_total_energy()
+        positions = (
+            self.phase_space.copy()[:self.phase_space.size//2]
+            .reshape(len(self.astro_objects), self.n_dim)
+            )
 
         self.set_phase_space(original_configurations)
             
         ## Evolve with one step of 2*h
         self.step_size = 2*h
         self.evolve(inplace=True)
-        energy2 = self.get_total_energy()
         positions2 = self.phase_space.copy()[:self.phase_space.size//2].reshape(len(self.astro_objects), self.n_dim)
         self.set_phase_space(original_configurations)
         self.step_size = h
 
         
         
-        ## Calculate the maximum relative distance, defined as the maximum of sqrt((x1-x2)^2 + (y1-y2)^2) / sqrt(x1^2 + y1^2)
+        ## Calculate the maximum relative distance, defined (in 2D) as the maximum of sqrt((x1-x2)^2 + (y1-y2)^2) / sqrt(x1^2 + y1^2)
         # where (x1,y1) and (x2,y2) are the positions achieved with two steps of h and one step of 2*h
         position_differences = positions - positions2
         norm_positions = np.linalg.norm(positions, axis=1)
         norm_position_differences = np.linalg.norm(position_differences, axis=1)
 
         maxRelDist = np.max(norm_position_differences / norm_positions)
-                
-        h = 0.85 * h * (relError / maxRelDist )**(1/5)
+
+        # Using error estimates. Multiply by 0.85 for extra safety.   
+        h = 0.85 * h * (relative_error / maxRelDist )**(1/5)
 
         if inplace:
             self.step_size = h
@@ -514,79 +521,122 @@ class StarSystem:
 
         return solar_system
 
+    def get_planet_vectors(start_time_str):
+        """Example usage: get_planet_vectors('2022-12-20')"""
+        import requests
+        import datetime
+
+        API_URL = 'https://ssd.jpl.nasa.gov/api/horizons.api'
+
+        command_codes = ['10', '199', '299', '399', '499', '599', '699', '799', '899']
+        options = {
+            "format": 'json',
+            "MAKE_EPHEM": 'YES',
+            "COMMAND": None,
+            "EPHEM_TYPE": 'VECTORS',
+            "CENTER": '500@0',
+            "START_TIME": None,
+            "STOP_TIME": None,
+            "STEP_SIZE": '2d',
+            "VEC_TABLE": '2',
+            "REF_SYSTEM": "ICRF",
+            "REF_PLANE": "ECLIPTIC",
+            "VEC_CORR": "NONE",
+            "OUT_UNITS": 'au-d',
+            "VEC_LABELS": "YES",
+            "VEC_DELTA_T": "NO",
+            "CSV_FORMAT": "YES",
+            "OBJ_DATA": "YES",
+        }
+
+        start_time = datetime.datetime.strptime(start_time_str, '%Y-%m-%d')
+        stop_time = start_time + datetime.timedelta(days=1)
+        
+        options['START_TIME'] = start_time.strftime('%Y-%m-%d')
+        options['STOP_TIME'] = stop_time.strftime('%Y-%m-%d')
+        planet_vectors = []
+        for code in command_codes:
+            options['COMMAND'] = code
+            response = requests.get(API_URL, params=options)
+            data = response.json()['result']
+            # get the output csv data. It starts with $$SOE and ends with $$EOE
+            csv_data = data[data.find('$$SOE')+5:data.find('$$EOE')-1]
+            # strip any final commas and split the data into a list
+            csv_data = csv_data.strip(',').split(',')
+            # remove the first 2 elements, which are the time in two different formats
+            csv_data = csv_data[2:]
+            # convert the strings to floats
+            csv_data = [float(x) for x in csv_data]
+            planet_vectors.append(csv_data)
+        return np.array(planet_vectors)
+
     @classmethod
-    def our_solar_system(cls, step_size=1E-3):
+    def our_solar_system(cls, t0=None, step_size=1E-3):
         """
         Create the inner solar system
         """
+        n_dim = 3
+        names_p = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"]
+        colors_p = ["#808080", "#FFA500", "#0000FF", "#FF0000", "#D0B49F", "#FFA500", "#00FFFF", "#0000FF"]
         masses_p = np.array([3.285E23, 4.867E24, 5.972E24, 6.39E23, 1.898E27, 5.683E26, 8.681E25, 1.024E26])
-        radius_p = np.array([2439.7, 6051.8, 6371, 3389.5, 69911, 58232, 25362, 24622])
-        R_sun = 695700
-        radiuses = np.concatenate(([R_sun], radius_p))/R_sun
-        radius_p = radius_p / max(radius_p)
         masses_p = masses_p / 1.989E30
         masses = np.concatenate(([1], masses_p))
-        print(masses)
         n_objects = len(masses)
-        periods_p = np.array([88, 224.7, 365.2, 686.98, 4332, 10759, 30685, 60190])
-        names = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"]
-        colors = ["#808080", "#FFA500", "#0000FF", "#FF0000", "#D0B49F", "#FFA500", "#00FFFF", "#0000FF"]
+        radius_p = np.array([2439.7, 6051.8, 6371, 3389.5, 69911, 58232, 25362, 24622])
+        R_sun = 695700
+        radius_p = radius_p / R_sun        
 
-        semimajor = (G * M_sun * periods_p**2 / (2*np.pi)**2)**(1/3)
-        initial_phases = np.random.rand(len(masses_p)) * 2 * np.pi
-        initial_positions_x = semimajor * np.cos(initial_phases)
-        initial_positions_y = semimajor * np.sin(initial_phases)
-        # create the initial positions as an array [x1, y1, x2, y2, ...]
-        initial_positions = np.concatenate((initial_positions_x[None,:], initial_positions_y[None,:])).T.flatten()
-        speeds = 2 * np.pi * semimajor / periods_p
-        initial_velocities_x = - speeds * np.sin(initial_phases)
-        initial_velocities_y = speeds * np.cos(initial_phases)
-        # create the initial velocities as an array [vx1, vy1, vx2, vy2, ...]
-        initial_velocities = np.concatenate((initial_velocities_x[None,:], initial_velocities_y[None,:])).T.flatten()
-        print(initial_velocities)
-        # raise
+        # use the data from NASA for 1945-01-01
+        # https://ssd.jpl.nasa.gov/horizons.api
+        if t0 is None:
+            t0 = "1945-01-01"
+        planet_vectors = cls.get_planet_vectors(t0)
+
+        # create the initial positions as an array [x1, y1, z1, x2, y2, z2, ...]
+        initial_positions = planet_vectors[:, :n_dim].flatten()
+        # create the initial velocities as an array [vx1, vy1, vz1, vx2, vy2, vz2, ...]
+        initial_velocities = planet_vectors[:, n_dim:].flatten()
         phase_space = np.concatenate(
-            (np.array([0, 0]),
-            initial_positions,
-            np.array([0, 0]),
+            (initial_positions,
             initial_velocities)
         )
-        # calculate the center of mass
-        center_of_mass_x = np.sum(masses * phase_space[:2*n_objects:2]) / np.sum(masses)
-        center_of_mass_y = np.sum(masses * phase_space[1:2*n_objects:2]) / np.sum(masses)
 
-        # calculate the total momentum
-        total_momentum_x = np.sum(masses * phase_space[2*n_objects::2])
-        total_momentum_y = np.sum(masses * phase_space[2*n_objects+1::2])
+        # rescale the positions and velocities of x, y and possibly z
+        for i in range(n_dim):
+            # calculate the center of mass
+            center_of_mass_i = np.sum(masses * phase_space[:n_dim*n_objects:n_dim]) / np.sum(masses)
+            # calculate the total momentum
+            total_momentum_i = np.sum(masses * phase_space[n_dim*n_objects::n_dim])
+            # subtract the center of mass from the positions
+            phase_space[i:n_dim*n_objects:n_dim] -= center_of_mass_i
+            # subtract the total momentum from the velocities
+            phase_space[n_dim*n_objects+i::n_dim] -= total_momentum_i / np.sum(masses)
 
-        # rescale the positions and velocities
-        phase_space[:2*n_objects:2] -= center_of_mass_x
-        phase_space[1:2*n_objects:2] -= center_of_mass_y
-        phase_space[2*n_objects::2] -= total_momentum_x / np.sum(masses)
-        phase_space[2*n_objects+1::2] -= total_momentum_y / np.sum(masses)
-
-        astro_objects = [AstroObject(mass=M_sun, name="Sun", radius=1, color="#FFFF00")]
+        astro_objects = [
+            AstroObject(
+                mass=M_sun, 
+                name="Sun", 
+                radius=1, 
+                color="#FFFF00")
+                ]
         for i in range(len(masses_p)):
             astro_objects.append(AstroObject(
                 mass=masses_p[i], 
-                name=names[i],
+                name=names_p[i],
                 radius=radius_p[i],
-                color=colors[i],
+                color=colors_p[i],
             ))
 
 
         solar_system = cls(
             name="Our solar system",
             astro_objects=astro_objects,
+            n_dim=n_dim,
             phase_space=phase_space,
             step_size=step_size,
         )
 
-
         return solar_system
-
-            
-        
 
 
     @classmethod
@@ -647,71 +697,169 @@ class StarSystem:
         return solar_system
 
 
-    def plot_orbits_animation(self, t_0, t_end, save=False, adaptive=True):
+    def plot_orbits(self, t_0, t_end, indices=None, keep_points=None, real_time=False, mark_every_dt=None, save=False, adaptive=True, relative_error=1E-5):
         """
         Plot the animation of the solar system
         Add a pause/continue button to the animation
-        Add a progress bar in the animation subtitle using tqdm
-        # add three bars to the animation subtitle, one for the total energy, total kinetic energy and total potential energy
-        # the bars should be colored according to the energy:
-        #   - total energy: red
-        #   - total kinetic energy: green
-        #   - total potential energy: blue
-        # the bars should be normalized to the total energy
-        # the bars should be updated every step
-        # they are created via ax.bar([0, 1, 2], [total_energy, total_kinetic_energy, total_potential_energy], color=["red", "green", "blue"])
+        # add stick immediately below bottom of the x-axis another plot with the evolution of the difference between the total energy and the initial total energy
         """
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
 
-        fig = plt.figure(figsize=(3,3))
-        # add two axes to the figure, one for the animation and one for the bars
-        # make the animation axis fill the figure, while the bars should be placed in the lower left corner
-        ax = fig.add_axes([0, 0, 1, 1])
-        # set the limits of the animation axis
-        max_coord = 13*np.max(np.abs(self.phase_space[:self.phase_space.size//2]))
+        # calculate the sizes of the axes
+        ax_dE_height_proportion = 0.2
+        x_margin = 0.15
+        y_margin_bottom = 0.1
+        ax_height_proportion = 1 - (ax_dE_height_proportion + y_margin_bottom)
+        figure_x_size = 4
+        figure_y_size = figure_x_size * (1 - 2*x_margin) / (1 - y_margin_bottom - ax_dE_height_proportion)
+
+        fig = plt.figure(figsize=(figure_x_size, figure_y_size))
+        ax_dE = fig.add_axes([x_margin, y_margin_bottom, 1-2*x_margin, ax_dE_height_proportion])
+
+        projection = None
+        aspect = 'equal'
+
+        ax = fig.add_axes(
+            [x_margin, 
+            1-ax_height_proportion, 
+            1-2*x_margin, 
+            ax_height_proportion],
+            projection=projection
+        )
+
+        # set the limits of the animation axis as the max of the distance of the objects from the origin
+        # restrict the indices of the objects to plot to `indices`
+        print(self.phase_space)
+        if (not real_time) and (indices is None):
+            max_dist = np.max(np.linalg.norm(self.phase_space[:self.phase_space.size//2].reshape(-1,self.n_dim), axis=1))
+        else:
+            max_dist = np.max(
+                np.linalg.norm(
+                    self.phase_space[:self.phase_space.size//2]
+                    .reshape(-1,self.n_dim), axis=1),
+                    where=np.isin(np.arange(self.masses.size), indices),
+                    initial=0
+                )
+        max_coord = 2*max_dist
         ax.set_xlim(-max_coord, max_coord)
         ax.set_ylim(-max_coord, max_coord)
-        ax.set_aspect("auto")
-        ax.grid()
+        ax.set_aspect(aspect, adjustable='box', anchor='C')
+        # remove the ticks and labels of the animation axis
+        ax.set_yticks([])
+        ax.set_yticklabels([])
 
-        ax_bars = fig.add_axes([0.3, 0.1, 0.5, 0.2])
-        ax_bars.set_ylim(-1.3, 1.3)
+        ax.tick_params(
+            axis='x', 
+            which='both', 
+            bottom=True, 
+            top=False,
+            labelbottom=True,
+            labeltop=False,
+            direction='in',
+            pad=-20,
+        )
 
         # the default plt marker size is rcParams['lines.markersize'] ** 2. 
         # We want to scale the marker size with the radius of the object
-        marker_size = np.array([max(obj.radius,0.5) for obj in self.astro_objects]) ** 2 * 5
+        marker_size = np.array([max(obj.radius,0.3) for obj in self.astro_objects]) ** 2 * 5
 
         ## Create the scatter plot
-        positions = self.phase_space[:self.phase_space.size//2].reshape((len(self.astro_objects), self.n_dim))
+        positions = self.phase_space[:self.phase_space.size//2].reshape((len(self.masses), self.n_dim))
+        
         lines = []
         for i in range(len(self.astro_objects)):
+            data = [positions[i, 0], positions[i, 1]]
             line, = ax.plot(
-                positions[i, 0],
-                positions[i, 1],
+                *data,
                 "o",
+                alpha=0.5,
                 markersize=marker_size[i],
                 label=self.astro_objects[i].name,
                 color=self.astro_objects[i].color,
             )
             lines.append(line)
 
-        # add the bars to the axes with x-labels T, K, P
-        bars = ax_bars.bar(
-            [0, 1, 2],
-            [self.get_total_energy(), self.get_kinetic_energy(), self.get_potential_energy()],
-            color=["red", "green", "blue"],
+        special_points = plt.scatter(
+            [],
+            [],
+            s=10,
+            color="black",
+            marker="o",
+            zorder=50000,
         )
-        ax_bars.set_xticks([0, 1, 2])
-        ax_bars.set_xticklabels(["T", "K", "P"])
-        # place the bars in the lower left corner of the axes
-        y_bar_limits = max(abs(self.get_total_energy()), abs(self.get_kinetic_energy()), abs(self.get_potential_energy()))
-        ax_bars.set_ylim(-1.3*y_bar_limits, 1.3*y_bar_limits)
+
+
         #  since G is in units of AU^3 / (Msun * day^2), the energy ([Msun * AU^2 / day^2]) is in units of Msun * AU^2 / day^2
         print(f"Total energy: {self.get_total_energy()} [Msun * AU^2 / day^2]")
 
-        ## Create the legend
-        ax.legend()
+        # the initial point is at x=t_0 and y=0
+        initial_energy = self.get_total_energy()
+        x = [t_0]
+        y = [0]
+
+        # create an artist for the energy evolution plot
+        line, = ax_dE.plot(
+            x, 
+            y, 
+            color="black", 
+            label="Total energy")
+
+        # set the scale of the y-axis to be logarithmic
+        ax_dE.set_yscale("log")
+        ax_dE.set_xscale("log")
+        ax_dE.set_ylim(1E-20, 1E3)
+        ax_dE.set_xlim(t_0, t_end)
+        
+
+        ## Create the progress bar
+        from tqdm import tqdm
+        pbar = tqdm(total=t_end-t_0)
+
+        if not real_time:
+            if indices is None:
+                indices = np.arange(len(self.astro_objects))
+            time = t_0
+            positions = []
+            times = []
+            energies = []
+            while time < t_end:
+                self.evolve(inplace=True)
+                time += solar_system.step_size
+                positions.append(self.phase_space[:self.phase_space.size//2].reshape((len(self.masses), self.n_dim)))
+                times.append(time)
+                energies.append(self.get_total_energy())
+                pbar.update(solar_system.step_size)
+                self.adapt_step(relative_error=relative_error,inplace=True)
+            pbar.close()
+
+            positions = np.array(positions)
+            times = np.array(times)
+            energies = np.array(energies)
+
+            # keep only the positions of the objects in `indices`
+            positions = positions[:, indices, :]
+            x_data = positions[:, :, 0]
+            y_data = positions[:, :, 1]
+
+            for i, line_idx in enumerate(indices):
+                lines[line_idx].set_data(x_data[:, i], y_data[:, i])
+
+            # find the indices of times that are just above multiples of mark_every_dt
+            # to do that, calculate the remainder of the division of times by mark_every_dt
+            # and find the indices of the elements that are at a local minimum:
+            special_indices_dt = np.where(np.diff(np.mod(times, mark_every_dt)) < 0)[0] + 1
+            x_special = x_data[special_indices_dt, :].flatten()
+            y_special = y_data[special_indices_dt, :].flatten()
+            special_points.set_offsets(np.array([x_special, y_special]).T)
+            
+            line.set_data(times, abs(energies - initial_energy)/abs(initial_energy))
+            plt.show()
+
+            return
+
+        title = ax.text(0.5, 0.9, 'Initializing...', horizontalalignment='center',
+            verticalalignment='center', transform=ax.transAxes)
 
         ## Create the pause/continue button
         pause = False
@@ -720,67 +868,80 @@ class StarSystem:
             pause ^= True
         fig.canvas.mpl_connect("button_press_event", onClick)
 
-        ## Create the progress bar
-        from tqdm import tqdm
-        pbar = tqdm(total=t_end-t_0)
-
-        # add an artist to the axes to update the title
-        # set the location of the artist to the upper center of the axes
-
-        title = ax.text(0.5, 0.9, 'matplotlib', horizontalalignment='center',
-                verticalalignment='center', transform=ax.transAxes)
-
         def animate(i, adaptive):
             # If pbar.n is greater than t_end, stop the animation
             if pbar.n >= t_end:
                 pbar.close()
                 # stop the animation
-                return *lines, title, *bars
+                return *lines, title, line, special_points
             if pause:
-                return *lines, title, *bars
+                return *lines, title, line, special_points
 
             self.evolve(inplace=True)
             positions = self.phase_space[:self.phase_space.size//2].reshape((len(self.astro_objects), self.n_dim))
-            # positions = [[x1, y1], [x2, y2], ...]
+            # positions = [[x1, y1 (, z1)], [x2, y2 (, z2)], ...]
             
-            # get center of mass
-            center_of_mass_x = np.sum(self.phase_space[:self.phase_space.size//2:2] * self.masses) / np.sum(self.masses)
-            center_of_mass_y = np.sum(self.phase_space[1:self.phase_space.size//2:2] * self.masses) / np.sum(self.masses)
-            # print(center_of_mass_x, center_of_mass_y)
-            # get total momentum
-            total_momentum_x = np.sum(self.phase_space[self.phase_space.size//2::2] * self.masses)
-            total_momentum_y = np.sum(self.phase_space[self.phase_space.size//2+1::2] * self.masses)
-            # print(total_momentum_x, total_momentum_y)
+            # # get center of mass
+            # center_of_mass_x = np.sum(self.phase_space[:self.phase_space.size//2:self.n_dim] * self.masses) / np.sum(self.masses)
+            # center_of_mass_y = np.sum(self.phase_space[1:self.phase_space.size//2:self.n_dim] * self.masses) / np.sum(self.masses)
+            # # print(center_of_mass_x, center_of_mass_y)
+            # # get total momentum
+            # total_momentum_x = np.sum(self.phase_space[self.phase_space.size//2::self.n_dim] * self.masses)
+            # total_momentum_y = np.sum(self.phase_space[self.phase_space.size//2+1::self.n_dim] * self.masses)
+            # # print(total_momentum_x, total_momentum_y)
 
             for i in range(len(self.astro_objects)):
-                # TODO: add artist for the tail with a varying alpha
-                lines[i].set_data(positions[i, 0], positions[i, 1])
-
+                if i not in indices or keep_points in [None,0]:
+                    x = np.array([])
+                    y = np.array([])
+                else:
+                    x, y = lines[i].get_data()
+                    if isinstance(keep_points, str) and keep_points == "all":
+                        pass
+                    elif isinstance(keep_points, int) and len(x) > keep_points:
+                        x = x[-keep_points+1:]
+                        y = y[-keep_points+1:]
+                x = np.append(x[:], positions[i, 0])
+                y = np.append(y[:], positions[i, 1])
+                
+                lines[i].set_data(x, y)
             pbar.update(self.step_size)
 
             ## Update the title. Step size is in scientific notation if it is smaller than 1E-3 or larger than 1E3
             if self.step_size < 1E-3 or self.step_size > 1E3:
-                title.set_text(f"t = {pbar.n:.2f} days, step_size = {self.step_size:.3E} days")
+                title.set_text(f"t = {pbar.n/365.2:.2f} years, dt = {self.step_size:.3E} days")
             else:
-                title.set_text(f"t = {pbar.n:.2f} days, step_size = {self.step_size:.3f} days")
+                title.set_text(f"t = {pbar.n/365.2:.2f} years, dt = {self.step_size:.3f} days")
             ## Update the normalized energy bars
             total_energy = self.get_total_energy()
-            total_kinetic_energy = self.get_kinetic_energy()
-            total_potential_energy = self.get_potential_energy()
 
-            print(total_energy, total_kinetic_energy, total_potential_energy)
-            
-            bars[0].set_height(total_energy)
-            bars[1].set_height(total_kinetic_energy)
-            bars[2].set_height(total_potential_energy)
+            ## Update the energy plot
+            total_energy = self.get_total_energy()
 
+            x_data = line.get_xdata()
+            y_data = line.get_ydata()
 
+            new_time = x_data[-1] + self.step_size
+            # if new_time is greater than an integer multiple of 365.2, but x_data[-1] is not, 
+            # add a new black point in ax for the AstroObject with i=0 (the Sun)
+            # make this black point always visible by setting the zorder to something high
+            if mark_every_dt is not None and mark_every_dt > 0:
+                if new_time % mark_every_dt < x_data[-1] % mark_every_dt:
+                    for i in range(len(self.astro_objects)):
+                        if indices is None or i in indices:
+                            old_offsets = special_points.get_offsets()
+                            new_offsets = np.concatenate((old_offsets, [[positions[i, 0], positions[i, 1]]]))
+                            special_points.set_offsets(new_offsets)
+
+            x_data = np.append(x_data, new_time)
+            y_data = np.append(y_data, abs(total_energy - initial_energy)/abs(initial_energy))
+            line.set_data(x_data, y_data)
 
             if adaptive:
                 ## Adapt the step size
-                self.adaptStep(relError=1E-5, inplace=True)
+                self.adapt_step(relative_error=relative_error, inplace=True)
 
-            return *lines, title, *bars
+            return *lines, title, line, special_points
 
         anim = FuncAnimation(
             fig, 
@@ -804,119 +965,6 @@ class StarSystem:
 
         pbar.close()
 
-    def plot_energy_evolution(self, t_0, t_end, save=False, adaptive=True):
-        """Plots the relative energy error of the system as a function of time.
-
-        Parameters
-        ----------
-        t_0 : float
-            The initial time.
-        t_end : float
-            The final time.
-        save : bool, optional
-            Whether to save the animation as a gif, by default False
-        """
-
-        ## Create the wide and short figure
-        fig = plt.figure(figsize=(10, 2))
-        ax = fig.add_subplot(1, 1, 1)
-
-        # the initial point is at x=t_0 and y=0
-        initial_energy = self.get_total_energy()
-        x = [t_0]
-        y = [0]
-
-        # create an artist to update the line
-        line, = ax.plot(
-            x, 
-            y, 
-            "k-",
-            color="black", 
-            label="Total energy")
-
-        # set the scale of the y-axis to be logarithmic
-        ax.set_yscale("log")
-        ax.set_xscale("log")
-        ax.set_ylim(1E-20, 1E3)
-        ax.set_xlim(t_0, t_end)
-
-        # ax.axhline(y=1, color="red", linestyle="--")
-        ## Create the pause/continue button
-        pause = False
-        def onClick(event):
-            nonlocal pause
-            pause ^= True
-        fig.canvas.mpl_connect("button_press_event", onClick)
-
-        ## Create the progress bar
-        from tqdm import tqdm
-        pbar = tqdm(total=t_end-t_0)
-
-        # add an artist to the axes to update the title
-        # set the location of the artist to the upper center of the axes
-
-        title = ax.text(0.5, 0.9, 'matplotlib', horizontalalignment='center',
-                verticalalignment='center', transform=ax.transAxes)
-
-        def animate(i,adaptive):
-            # If pbar.n is greater than t_end, stop the animation
-            if pbar.n >= t_end:
-                pbar.close()
-                # stop the animation
-                return line, title
-            if pause:
-                return line, title
-
-            self.evolve(inplace=True)
-
-            pbar.update(self.step_size)
-
-            ## Update the title. Step size is in scientific notation if it is smaller than 1E-3 or larger than 1E3
-            if self.step_size < 1E-3 or self.step_size > 1E3:
-                title.set_text(f"t = {pbar.n:.2f} days, step_size = {self.step_size:.3E} days")
-            else:
-                title.set_text(f"t = {pbar.n:.2f} days, step_size = {self.step_size:.3f} days")
-            ## Update the normalized energy bars
-            total_energy = self.get_total_energy()
-
-            x_data = line.get_xdata()
-            y_data = line.get_ydata()
-
-            new_time = x_data[-1] + self.step_size
-            x_data = np.append(x_data, new_time)
-            y_data = np.append(y_data, abs(total_energy - initial_energy)/abs(initial_energy))
-            line.set_data(x_data, y_data)
-
-            if adaptive:
-                ## Adapt the step size
-                self.adaptStep(relError=1E-5, inplace=True)
-
-            return line, title
-
-        anim = animation.FuncAnimation(
-            fig,
-            animate,
-            frames=None,
-            init_func=None,
-            interval=1,
-            fargs=(adaptive,),
-            repeat=False,
-            blit=True,
-        )
-
-        plt.show()
-
-        if save:
-            anim.save(
-                f"energy_evolution_{self.name}.gif", 
-                writer="imagemagick", 
-                fps=30,
-            )
-
-        pbar.close()
-
-        
-
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -929,27 +977,42 @@ if __name__ == "__main__":
     #     step_size=50,
     # )
 
-    ###### bounded solar system ######
-    # while True:
-    #     solar_system = StarSystem.random_solar_system(
-    #         n_objects=5,
-    #         step_size=1E-6,
-    #     )
-    #     if solar_system.get_total_energy() < 0:
-    #         break
+    ##### bounded solar system ######
+    while True:
+        solar_system = StarSystem.random_solar_system(
+            n_objects=2,
+            step_size=1E-6,
+        )
+        if solar_system.get_total_energy() < 0:
+            break
 
     ###### Our solar system ######
-    solar_system = StarSystem.our_solar_system(step_size=1E-3)
+    # solar_system = StarSystem.our_solar_system(step_size=1E-3)
 
 
 
     ## Evolve the solar system for a number of days
     t = 0
-    t_end = 10000
+    t_end = 3.5 * 365.25
+
+    # indices of the objects to plot trails
+    indices = None
+
+    # keep_points is the number of points to keep in the plot for `indices`. If None, keep all. Ignored if real_time is False
+    keep_points = "all"
+
+    # mark_every_dt is the number of days between each black point in the energy plot
+    mark_every_dt = 1 * 365.25
+
+    # real_time is whether to plot as you evolve or precompute the entire evolution and then plot
+    # It is usually much faster to precompute the evolution and then plot
+    # Note also that the size of the plot affects the speed of the animation if real_time is True
+    real_time = False
+
+    # relative_error is the relative error to use for adaptive step size
+    # if you evolve quasi-steady systems, a value of ~1E-5 should be fine
+    # if you evolve chaotic systems, this should be much smaller, e.g. 1E-10
+    relative_error = 1E-8
 
     ## Animate the orbits
-    solar_system.plot_orbits_animation(t, t_end, save=False, adaptive=True)
-
-    ## Plot the energy evolution
-    # solar_system.plot_energy_evolution(t, t_end, save=False, adaptive=True)
-
+    solar_system.plot_orbits(t, t_end, indices=indices, keep_points=keep_points, mark_every_dt=mark_every_dt, real_time=real_time, save=False, adaptive=True, relative_error=relative_error)
