@@ -9,8 +9,6 @@ Created on Wed Nov  7 22:24:33 2018
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import matplotlib.lines as mlines
-import random
 
 # all masses are in solar masses
 # all distances are in AU
@@ -1004,7 +1002,6 @@ class StarSystem:
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
 
     # ###### Random solar system ######
     # solar_system = StarSystem.star_and_planet(
