@@ -19,7 +19,7 @@ Allows for online (i.e. while the simulation is running) and offline (i.e. after
 
 Only `numpy` is used for calculations, so it is the only major dependency.
 
-`matplotlib` is used for plotting, in combination with `tqdm` for progress bars.
+`matplotlib` is used for plotting, `tqdm` for progress bars, and `requests` for API calls to NASA's HORIZONS system.
 
 ```bash
 pip install -e .
