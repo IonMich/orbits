@@ -36,10 +36,10 @@ class AstroObject:
             self.color = next(colors)
         else:
             self.color = color
-        if star_system != None:
-            if pos == None:
+        if star_system is not None:
+            if pos is None:
                 pos = np.zeros(star_system.n_dim)
-            if vel == None:
+            if vel is None:
                 vel = np.zeros(star_system.n_dim)
             self.star_system = star_system
             self.star_system.add_astro_object(self, pos, vel)
@@ -48,7 +48,7 @@ class AstroObject:
         """
         Return the position of the object as a numpy array of length solar_system.n_dim
         """
-        if self.star_system == None:
+        if self.star_system is None:
             raise ValueError("The object is not in a star system")
         else:
             return self.star_system.get_position(self)
@@ -57,7 +57,7 @@ class AstroObject:
         """
         Return the velocity of the object as a numpy array of length solar_system.n_dim
         """
-        if self.star_system == None:
+        if self.star_system is None:
             raise ValueError("The object is not in a star system")
         else:
             return self.star_system.get_velocity(self)
@@ -77,9 +77,9 @@ class AstroObject:
     
     def copy(self, configuration=None, star_system=None):
         """Copy the object to a new AstroObject and assign to it new position and velocity"""
-        if configuration == None:
+        if configuration is None:
             configuration = self.pos(), self.vel()
-        if star_system == None:
+        if star_system is None:
             star_system = self.star_system
         return AstroObject(self.M, star_system, configuration[0], configuration[1])
 
@@ -128,7 +128,7 @@ class StarSystem:
                     raise TypeError("The astro_objects must be a list of AstroObject")
                 # check that the astro_objects are not already in a star system
                 try:
-                    if astro_object.star_system != None:
+                    if astro_object.star_system is not None:
                         raise ValueError("The astro_objects must not be in a star system")
                 except AttributeError:
                     pass
@@ -808,6 +808,7 @@ class StarSystem:
         ax_dE.set_xscale("log")
         ax_dE.set_ylim(1E-20, 1E3)
         ax_dE.set_xlim(t_0, t_end)
+        ax_dE.legend(loc="upper right")
 
         ## Create the pause/continue button
         pause = False
@@ -830,11 +831,11 @@ class StarSystem:
             energies = []
             while time < t_end:
                 self.evolve(inplace=True)
-                time += solar_system.step_size
+                time += self.step_size
                 positions.append(self.phase_space[:self.phase_space.size//2].reshape((len(self.masses), self.n_dim)))
                 times.append(time)
                 energies.append(self.get_total_energy())
-                pbar.update(solar_system.step_size)
+                pbar.update(self.step_size)
                 self.adapt_step(relative_error=relative_error,inplace=True)
             pbar.close()
 
@@ -1022,20 +1023,20 @@ if __name__ == "__main__":
 
     ###### Our solar system ######
     solar_system = StarSystem.our_solar_system(
-        t0='1945-01-01',
+        t0='2023-01-04',
         step_size=1E-3)
 
 
 
     ## Evolve the solar system for a number of days
     t = 0
-    duration =  0.25 # years
+    duration =  10 # years
     t_end = t + duration * 365.25
 
     # indices of the objects to plot trails
     # if None and real_time is False, plot trails for all objects
     # if None and real_time is True, don't plot any trails
-    indices = None
+    indices = [0,1,2,3,4]
 
     # keep_points is the number of points to keep in the plot for `indices`. If None, keep all. Ignored if real_time is False 
     keep_points = "all"
@@ -1053,12 +1054,12 @@ if __name__ == "__main__":
     # real_time is whether to plot as you evolve or precompute the entire evolution and then plot
     # It is usually much faster to precompute the evolution and then plot
     # Note also that the size of the plot affects the speed of the animation if real_time is True
-    real_time = False
+    real_time = True
 
     # relative_error is the relative error to use for adaptive step size
     # if you evolve quasi-steady systems, a value of ~1E-5 should be fine
     # if you evolve chaotic systems, this should be much smaller, e.g. 1E-10
-    relative_error = 1E-10
+    relative_error = 1E-6
 
     ## Animate the orbits
     solar_system.plot_orbits(
