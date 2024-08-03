@@ -3,3 +3,6 @@
 numpy
 matplotlib
 tqdm
+requests
+types-tqdm
+types-requests
