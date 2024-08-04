@@ -801,14 +801,15 @@ class StarSystem:
             x, 
             y, 
             color="black", 
-            label="Total energy")
+            label=r"$\frac{\Delta E}{E_0}$",
+        )
 
         # set the scale of the y-axis to be logarithmic
         ax_dE.set_yscale("log")
         ax_dE.set_xscale("log")
         ax_dE.set_ylim(1E-20, 1E3)
         ax_dE.set_xlim(t_0, t_end)
-        ax_dE.legend(loc="upper right")
+        ax_dE.legend()
 
         ## Create the pause/continue button
         pause = False
@@ -820,7 +821,9 @@ class StarSystem:
 
         ## Create the progress bar
         from tqdm import tqdm
-        pbar = tqdm(total=t_end-t_0)
+        pbar = tqdm(total=t_end-t_0, unit="day", desc="Time", position=0, leave=True,
+            bar_format="{desc}: {percentage:3.0f}%|{bar}| {n:.1f}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+        )
 
         if not real_time:
             if indices is None:
@@ -836,6 +839,7 @@ class StarSystem:
                 times.append(time)
                 energies.append(self.get_total_energy())
                 pbar.update(self.step_size)
+                pbar.set_postfix({"Energy": self.get_total_energy(), "Step size": float(self.step_size)})
                 self.adapt_step(relative_error=relative_error,inplace=True)
             pbar.close()
 
@@ -1058,7 +1062,7 @@ if __name__ == "__main__":
 
     # relative_error is the relative error to use for adaptive step size
     # if you evolve quasi-steady systems, a value of ~1E-5 should be fine
-    # if you evolve chaotic systems, this should be much smaller, e.g. 1E-10
+    # if you evolve collisional systems, this should be much smaller, e.g. 1E-10
     relative_error = 1E-6
 
     ## Animate the orbits
