@@ -5,7 +5,7 @@ Created on Wed Nov  7 22:24:33 2018
 
 @author: yannis
 """
-
+from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -15,7 +15,7 @@ import matplotlib.animation as animation
 # all times are in days
 M_sun = 1.0
 G = 0.000295912208
-M_jupiter = 1/1047.93 * M_sun
+M_jupiter = 1 / 1047.93 * M_sun
 
 def cm_color():
     import itertools
@@ -24,11 +24,42 @@ def cm_color():
     
 colors = cm_color()
 
-class AstroObject:    
+class AstroObject:
     """
-    Create an astrophysical object with defined mass 2-D position and 2-D velocity
+    Class to simulate an astronomical object with a mass, radius, color, star system, position and velocity
     """
-    def __init__(self, name, mass, radius=1, color=None, star_system=None, pos=None, vel=None):
+    def __init__(
+        self,
+        name: str,
+        mass: float,
+        radius: float = 0.1,
+        color: Optional[str] = None,
+        star_system: Optional["StarSystem"] = None,
+        pos: Optional[np.ndarray] = None,
+        vel: Optional[np.ndarray] = None,
+    ):
+        """
+        Create an AstroObject instance with a name, mass, radius, color, star_system, position and velocity
+
+        Parameters
+        ----------
+        name : str
+            The name of the object
+        mass : float
+            The mass of the object in solar masses
+        radius : float, optional
+            The radius of the object in AU, by default 0.1
+        color : str, optional
+            The color of the object, by default None
+        star_system : StarSystem, optional
+            The star system the object belongs to, by default None
+        pos : np.ndarray, optional
+            The position of the object in the star system, by default None
+            The length of the array must be equal to the dimension of the star system
+        vel : np.ndarray, optional
+            The velocity of the object in the star system, by default None
+            The length of the array must be equal to the dimension of the star system
+        """
         self.mass = mass
         self.name = name
         self.radius = radius
@@ -44,7 +75,7 @@ class AstroObject:
             self.star_system = star_system
             self.star_system.add_astro_object(self, pos, vel)
     
-    def pos(self):
+    def pos(self) -> np.ndarray:
         """
         Return the position of the object as a numpy array of length solar_system.n_dim
         """
@@ -53,7 +84,7 @@ class AstroObject:
         else:
             return self.star_system.get_position(self)
 
-    def vel(self):
+    def vel(self) -> np.ndarray:
         """
         Return the velocity of the object as a numpy array of length solar_system.n_dim
         """
@@ -62,7 +93,7 @@ class AstroObject:
         else:
             return self.star_system.get_velocity(self)
         
-    def distFromObj(self,otherObj):
+    def distFromObj(self, otherObj: "AstroObject") -> Exception:
         """
         Calculate the distance of this object  from another object
         
@@ -75,13 +106,21 @@ class AstroObject:
             raise NotImplementedError("This method is not implemented, because it is better to calculate "
                                         "the distances of all objects from each other at once")
     
-    def copy(self, configuration=None, star_system=None):
+    def copy(self, configuration: Optional[tuple] = None, star_system: Optional["StarSystem"] = None) -> "AstroObject":
         """Copy the object to a new AstroObject and assign to it new position and velocity"""
         if configuration is None:
             configuration = self.pos(), self.vel()
         if star_system is None:
             star_system = self.star_system
-        return AstroObject(self.M, star_system, configuration[0], configuration[1])
+        return AstroObject(
+            name=self.name,
+            mass=self.mass,
+            radius=self.radius,
+            color=self.color,
+            star_system=star_system,
+            pos=configuration[0],
+            vel=configuration[1],
+        )
 
     def update(self, configuration):
         """Update the position and velocity of the object"""
@@ -93,23 +132,30 @@ class StarSystem:
     """
     Class to simulate a solar system with stars and planets
     """
-    def __init__(self, name, astro_objects=[], phase_space=None, masses=None, n_dim=2, evolve_method="S4", step_size=0.001):
+    def __init__(
+        self,
+        name: str,
+        astro_objects: list[AstroObject] | int = [],
+        phase_space: Optional[np.ndarray] = None,
+        masses: Optional[np.ndarray] = None,
+        n_dim: int = 2,
+        evolve_method: str = "S4",
+        step_size: float = 1E-3,
+    ):
         self.name = str(name)
         self.n_dim = n_dim
-        self.astro_objects = []
+        self.astro_objects: list[AstroObject] = []
         self.step_size = step_size
         
-        if evolve_method == "RK4":
-            self.evolve = self.rk4
-        elif evolve_method == "ME":
-            self.evolve = self.modified_Euler
-        elif evolve_method == "S2":
-            self.evolve = self.symplectic2
-        elif evolve_method == "S4":
-            self.evolve = self.symplectic4
-        else:
+        try:
+            self.evolve = {
+                "RK4": self.rk4,
+                "ME": self.modified_Euler,
+                "S2": self.symplectic2,
+                "S4": self.symplectic4,
+            }[evolve_method]
+        except KeyError:
             raise ValueError("The evolve_method must be one of 'RK4', 'ME', 'S2' or 'S4'")
-
         # check that astro_objects is a list
         if not isinstance(astro_objects, list):
             # check that astro_objects is a positive integer
@@ -188,8 +234,12 @@ class StarSystem:
 
         self.masses = np.array(self.masses)
 
-
-    def add_astro_object(self, astro_object, pos=None, vel=None):
+    def add_astro_object(
+        self,
+        astro_object: AstroObject,
+        pos: Optional[np.ndarray] = None,
+        vel: Optional[np.ndarray] = None,
+    ):
         """
         Add an AstroObject instance to the star system
         """
@@ -207,41 +257,41 @@ class StarSystem:
             self.set_position(astro_object, pos)
             self.set_velocity(astro_object, vel)
     
-    def get_position(self, astro_object):
+    def get_position(self, astro_object: AstroObject) -> np.ndarray:
         """
         Return the position of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         index = self.astro_objects.index(astro_object)
         return self.phase_space[index*self.n_dim:(index+1)*self.n_dim]
 
-    def set_position(self, astro_object, pos):
+    def set_position(self, astro_object: AstroObject, pos: np.ndarray) -> None:
         """
         Set the position of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         index = self.astro_objects.index(astro_object)
         self.phase_space[index*self.n_dim:(index+1)*self.n_dim] = pos
 
-    def set_positions(self, pos):
+    def set_positions(self, pos: np.ndarray) -> None:
         """
         Set the position of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         self.phase_space[:self.phase_space.size//2] = pos
 
-    def get_velocity(self, astro_object):
+    def get_velocity(self, astro_object: AstroObject) -> np.ndarray:
         """
         Return the velocity of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         index = self.astro_objects.index(astro_object)
         return self.phase_space[(index+1)*self.n_dim:(index+2)*self.n_dim]
 
-    def set_velocity(self, astro_object, vel):
+    def set_velocity(self, astro_object: AstroObject, vel: np.ndarray) -> None:
         """
         Set the velocity of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         index = self.astro_objects.index(astro_object)
         self.phase_space[(index+1)*self.n_dim:(index+2)*self.n_dim] = vel
 
-    def get_pairwise_separations(self):
+    def get_pairwise_separations(self) -> np.ndarray:
         """
         Return the array of the pairwise separations of the list of AstroObject instances
         in the same star system. Each separation is an array of length equal to self.n_dim
@@ -254,7 +304,7 @@ class StarSystem:
         distances = np.linalg.norm(separations,axis=2) # shape (num_objs, num_objs)
         return separations, distances
 
-    def get_accelerations(self):
+    def get_accelerations(self) -> np.ndarray:
         """
         Return the array of the accelerations of the list of AstroObject instances
         in the same star system
@@ -271,7 +321,7 @@ class StarSystem:
         # now the shape of accelerations is (num_objs * self.n_dim,)
         return accelerations
 
-    def get_phase_space_derivatives(self):
+    def get_phase_space_derivatives(self) -> np.ndarray:
         """
         Return the array of the derivatives of the phase space of the list of AstroObject instances
         in the same star system
@@ -281,13 +331,13 @@ class StarSystem:
 
         return np.concatenate((velocities, accelerations))
 
-    def set_phase_space(self, phase_space):
+    def set_phase_space(self, phase_space: np.ndarray) -> None:
         """
         Set the phase space of the star system
         """
         self.phase_space = phase_space
 
-    def get_kinetic_energy(self):
+    def get_kinetic_energy(self) -> float:
         """
         Return the kinetic energy of the star system
         """
@@ -295,7 +345,7 @@ class StarSystem:
         kinetic_energy = 0.5 * np.sum(self.masses * np.sum(velocities**2, axis=1))
         return kinetic_energy
 
-    def get_potential_energy(self):
+    def get_potential_energy(self) -> float:
         """
         Return the potential energy of the star system
         """
@@ -308,13 +358,13 @@ class StarSystem:
                 energy += - G * self.masses[i] * self.masses[j] / distances[i,j]
         return energy
 
-    def get_total_energy(self):
+    def get_total_energy(self) -> float:
         """
         Return the total energy of the star system
         """
         return self.get_kinetic_energy() + self.get_potential_energy()
 
-    def rk4(self, inplace=True):
+    def rk4(self, inplace=True) -> np.ndarray:
         """
         Implement RK4 to evolve the phase space by dt=self.step_size
         """
@@ -338,7 +388,7 @@ class StarSystem:
 
         return new_phase_space
 
-    def modified_Euler(self, inplace=True):
+    def modified_Euler(self, inplace=True) -> np.ndarray:
         """
         Implement the modified Euler method, which is a symplectic integrator
 
@@ -373,7 +423,7 @@ class StarSystem:
 
         return new_phase_space
 
-    def symplectic2(self, inplace=True):
+    def symplectic2(self, inplace=True) -> np.ndarray:
         """
         Implement the Verlet method, which is a symplectic integrator
 
@@ -410,7 +460,7 @@ class StarSystem:
 
         return new_phase_space
 
-    def symplectic4(self, inplace=True):
+    def symplectic4(self, inplace=True) -> np.ndarray:
         """
         Implement the symplectic integrator of 4th order to evolve myRi by h
         Coefficients found in: 
@@ -506,13 +556,18 @@ class StarSystem:
         star_vy = - planet_vy * planet_mass / star_mass
 
         phase_space = np.array([star_x, 0, planet_x, 0, 0, star_vy, 0, planet_vy])
-
+        star = AstroObject(
+            mass=star_mass,
+            name="Star",
+        )
+        planet = AstroObject(
+            mass=planet_mass,
+            name="Planet",
+        )
+        astro_objects = [star, planet]
         solar_system = cls(
             name="Star and planet",
-            astro_objects=[
-                AstroObject(mass=star_mass, name="Star"),
-                AstroObject(mass=planet_mass, name="Planet"),
-            ],
+            astro_objects=astro_objects,
             phase_space=phase_space,
             step_size=step_size,
         )
@@ -739,7 +794,7 @@ class StarSystem:
                     where=np.isin(np.arange(self.masses.size), indices),
                     initial=0
                 )
-        max_coord = 2*max_dist
+        max_coord = 2 * max_dist
         ax.set_xlim(-max_coord, max_coord)
         ax.set_ylim(-max_coord, max_coord)
         ax.set_aspect(aspect, adjustable='box', anchor='C')
@@ -866,6 +921,12 @@ class StarSystem:
                 times = new_times
                 x_data = new_x_data
                 y_data = new_y_data
+                print(times.shape)
+                print(x_data.shape)
+                print(y_data.shape)
+                # store x_data, y_data, times and energies in a csv file
+                np.savetxt(f"{self.name}_positions.csv", np.hstack((times[:, np.newaxis], x_data)), delimiter=",")
+
 
             animated = True
             if not animated:
