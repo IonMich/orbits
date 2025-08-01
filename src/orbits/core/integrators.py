@@ -180,3 +180,55 @@ class IntegratorMixin:
             self.step_size = h
         
         return h
+    
+    def adapt_step(self, relative_error: float = 1E-5, inplace: bool = True) -> float:
+        """
+        Adapt the step size to reduce local error in positions to some specified relative error.
+        
+        This is the modern version with consistent naming used by the advanced plotting system.
+        
+        Parameters
+        ----------
+        relative_error : float, optional
+            Target relative error tolerance, by default 1E-5
+        inplace : bool, optional
+            Whether to update the step size in place, by default True
+            
+        Returns
+        -------
+        float
+            The new adapted step size
+        """
+        h = self.step_size
+        # Evolve with two steps of h
+        original_configurations = self.phase_space.copy()
+        self.evolve(inplace=True)
+        self.evolve(inplace=True)
+        positions = (
+            self.phase_space.copy()[:self.phase_space.size//2]
+            .reshape(len(self.astro_objects), self.n_dim)
+        )
+
+        self.set_phase_space(original_configurations)
+            
+        # Evolve with one step of 2*h
+        self.step_size = 2*h
+        self.evolve(inplace=True)
+        positions2 = self.phase_space.copy()[:self.phase_space.size//2].reshape(len(self.astro_objects), self.n_dim)
+        self.set_phase_space(original_configurations)
+        self.step_size = h
+
+        # Calculate the maximum relative distance
+        position_differences = positions - positions2
+        norm_positions = np.linalg.norm(positions, axis=1)
+        norm_position_differences = np.linalg.norm(position_differences, axis=1)
+
+        maxRelDist = np.max(norm_position_differences / norm_positions)
+
+        # Using error estimates. Multiply by 0.85 for extra safety.   
+        h = 0.85 * h * (relative_error / maxRelDist)**(1/5)
+
+        if inplace:
+            self.step_size = h
+        
+        return h

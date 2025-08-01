@@ -1,8 +1,0 @@
-# requirements: numpy, matplotlib, tqdm
-# install: pip install -e .
-numpy
-matplotlib
-tqdm
-requests
-types-tqdm
-types-requests

@@ -1,5 +1,6 @@
 """Core StarSystem class for orbital mechanics simulations."""
 
+from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -9,27 +10,36 @@ from .objects import AstroObject
 from .integrators import IntegratorMixin
 from ..physics.energy import EnergyMixin
 from ..presets.factories import SystemFactory
+from ..visualization.plotting import PlottingMixin
 
 
-class StarSystem(IntegratorMixin, EnergyMixin):
+class StarSystem(IntegratorMixin, EnergyMixin, PlottingMixin):
     """
     Class to simulate a solar system with stars and planets
     """
-    def __init__(self, name, astro_objects=[], phase_space=None, masses=None, evolve_method="S4", step_size=0.001):
+    def __init__(
+        self,
+        name: str,
+        astro_objects: list[AstroObject] | int = [],
+        phase_space: Optional[np.ndarray] = None,
+        masses: Optional[np.ndarray] = None,
+        n_dim: int = 2,
+        evolve_method: str = "S4",
+        step_size: float = 1E-3,
+    ):
         self.name = str(name)
-        self.n_dim = 2
-        self.astro_objects = []
+        self.n_dim = n_dim
+        self.astro_objects: list[AstroObject] = []
         self.step_size = step_size
         
-        if evolve_method == "RK4":
-            self.evolve = self.rk4
-        elif evolve_method == "ME":
-            self.evolve = self.modified_Euler
-        elif evolve_method == "S2":
-            self.evolve = self.symplectic2
-        elif evolve_method == "S4":
-            self.evolve = self.symplectic4
-        else:
+        try:
+            self.evolve = {
+                "RK4": self.rk4,
+                "ME": self.modified_Euler,
+                "S2": self.symplectic2,
+                "S4": self.symplectic4,
+            }[evolve_method]
+        except KeyError:
             raise ValueError("The evolve_method must be one of 'RK4', 'ME', 'S2' or 'S4'")
 
         # check that astro_objects is a list
@@ -110,7 +120,12 @@ class StarSystem(IntegratorMixin, EnergyMixin):
 
         self.masses = np.array(self.masses)
 
-    def add_astro_object(self, astro_object, pos=None, vel=None):
+    def add_astro_object(
+        self,
+        astro_object: AstroObject,
+        pos: Optional[np.ndarray] = None,
+        vel: Optional[np.ndarray] = None,
+    ):
         """
         Add an AstroObject instance to the star system
         """
@@ -128,14 +143,14 @@ class StarSystem(IntegratorMixin, EnergyMixin):
             self.set_position(astro_object, pos)
             self.set_velocity(astro_object, vel)
     
-    def get_position(self, astro_object):
+    def get_position(self, astro_object: AstroObject) -> np.ndarray:
         """
         Return the position of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         index = self.astro_objects.index(astro_object)
         return self.phase_space[index*self.n_dim:(index+1)*self.n_dim]
 
-    def set_position(self, astro_object, pos):
+    def set_position(self, astro_object: AstroObject, pos: np.ndarray) -> None:
         """
         Set the position of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
@@ -148,14 +163,14 @@ class StarSystem(IntegratorMixin, EnergyMixin):
         """
         self.phase_space[:self.phase_space.size//2] = pos
 
-    def get_velocity(self, astro_object):
+    def get_velocity(self, astro_object: AstroObject) -> np.ndarray:
         """
         Return the velocity of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
         index = self.astro_objects.index(astro_object)
         return self.phase_space[(index+1)*self.n_dim:(index+2)*self.n_dim]
 
-    def set_velocity(self, astro_object, vel):
+    def set_velocity(self, astro_object: AstroObject, vel: np.ndarray) -> None:
         """
         Set the velocity of an AstroObject instance in the same star system as a numpy array of length self.n_dim
         """
@@ -182,7 +197,7 @@ class StarSystem(IntegratorMixin, EnergyMixin):
         """
         separations, distances = self.get_pairwise_separations()
         
-        G_over_r3 = G/distances**3
+        G_over_r3 = G * np.divide(1, distances**3, out=np.zeros_like(distances), where=distances!=0)
         acceleration_components = - G_over_r3[:,:,np.newaxis] * separations * self.masses[np.newaxis,:,np.newaxis]
         
         accelerations = np.nansum(acceleration_components,axis=1) 

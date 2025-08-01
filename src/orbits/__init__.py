@@ -3,6 +3,7 @@
 from .core.systems import StarSystem
 from .core.objects import AstroObject
 from .core.constants import G, M_sun, M_jupiter
+from .utils.nasa_horizons import get_planet_vectors
 
 # Import export functionality to add methods to StarSystem
 from . import export
@@ -14,6 +15,7 @@ __all__ = [
     'G',
     'M_sun',
     'M_jupiter',
+    'get_planet_vectors',
 ]
 
 # Version info
