@@ -495,8 +495,8 @@ class StarSystem(IntegratorMixin, EnergyMixin, PlottingMixin):
         return SystemFactory.star_and_planet(cls, star_mass, planet_mass, planet_period, step_size)
 
     @classmethod
-    def our_solar_system(cls, step_size=1E-3):
-        return SystemFactory.our_solar_system(cls, step_size)
+    def our_solar_system(cls, t0=None, step_size=1E-3):
+        return SystemFactory.our_solar_system(cls, t0, step_size)
 
     @classmethod        
     def random_solar_system(cls, n_objects, step_size=1E-3):

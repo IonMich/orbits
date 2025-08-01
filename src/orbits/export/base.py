@@ -37,14 +37,25 @@ class BaseExporter(ABC):
         }
     
     def get_positions_3d(self) -> List[List[float]]:
-        """Convert 2D positions to 3D (adding z=0) and return as list."""
-        positions_2d = self.star_system.phase_space[:self.star_system.phase_space.size//2]
-        positions_2d = positions_2d.reshape(len(self.star_system.astro_objects), 2)
+        """Extract positions and return as 3D list, handling both 2D and 3D systems."""
+        positions = self.star_system.phase_space[:self.star_system.phase_space.size//2]
+        n_objects = len(self.star_system.astro_objects)
+        n_dim = getattr(self.star_system, 'n_dim', 2)  # Default to 2D for backward compatibility
         
-        # Convert to 3D by adding z=0
-        positions_3d = []
-        for pos_2d in positions_2d:
-            positions_3d.append([float(pos_2d[0]), float(pos_2d[1]), 0.0])
+        if n_dim == 2:
+            # 2D system: reshape and add z=0
+            positions_2d = positions.reshape(n_objects, 2)
+            positions_3d = []
+            for pos_2d in positions_2d:
+                positions_3d.append([float(pos_2d[0]), float(pos_2d[1]), 0.0])
+        elif n_dim == 3:
+            # 3D system: reshape directly
+            positions_3d_array = positions.reshape(n_objects, 3)
+            positions_3d = []
+            for pos_3d in positions_3d_array:
+                positions_3d.append([float(pos_3d[0]), float(pos_3d[1]), float(pos_3d[2])])
+        else:
+            raise ValueError(f"Unsupported number of dimensions: {n_dim}")
         
         return positions_3d
     

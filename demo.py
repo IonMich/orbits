@@ -32,8 +32,6 @@ def main():
         print(f"Day {day:3d}: Energy = {energy:.6e}, Error = {energy_error:.2e}")
     
     print("\n🎉 Demo completed successfully!")
-    print("The refactored package maintains all original functionality")
-    print("while providing a clean, modular structure for future extensions.")
 
 if __name__ == "__main__":
     main()

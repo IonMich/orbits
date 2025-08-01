@@ -61,25 +61,31 @@ export function useWebSocket({ url, autoConnect = false }: UseWebSocketOptions):
             case 'metadata':
               if (message.objects) setObjects(message.objects);
               if (message.units) setUnits(message.units);
-              console.log('Received metadata:', message);
+              console.log('📡 Received metadata:', message);
               break;
               
             case 'frame':
               if (message.frame !== undefined && message.time !== undefined && message.positions) {
+                console.log(`🎬 Frame ${message.frame} at time ${message.time.toFixed(1)}d`);
                 setLatestFrame({
                   frame: message.frame,
                   time: message.time,
                   positions: message.positions
                 });
+              } else {
+                console.warn('⚠️ Invalid frame data:', message);
               }
               break;
               
             case 'pong':
               // Handle ping/pong for connection health
               break;
+              
+            default:
+              console.log('📨 Unknown message type:', message.type, message);
           }
         } catch (err) {
-          console.error('Failed to parse WebSocket message:', err);
+          console.error('❌ Failed to parse WebSocket message:', err, 'Raw data:', event.data);
           setError('Failed to parse server message');
         }
       };

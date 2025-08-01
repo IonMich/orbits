@@ -3,9 +3,15 @@
 import asyncio
 import json
 import time
-from typing import Set, Dict, Any, Optional
+from typing import Set, Dict, Any, Optional, Union
 import websockets
 from websockets.server import WebSocketServerProtocol
+
+# FastAPI WebSocket support
+try:
+    from fastapi import WebSocket as FastAPIWebSocket
+except ImportError:
+    FastAPIWebSocket = None
 
 from .base import StreamingExporter
 
@@ -16,11 +22,11 @@ class WebSocketStreamer(StreamingExporter):
     def __init__(self, star_system, target_fps: int = 60, port: int = 8765):
         super().__init__(star_system, target_fps)
         self.port = port
-        self.clients: Set[WebSocketServerProtocol] = set()
+        self.clients: Set[Union[WebSocketServerProtocol, "FastAPIWebSocket"]] = set()
         self.server = None
         self.streaming_task = None
         
-    async def register_client(self, websocket: WebSocketServerProtocol):
+    async def register_client(self, websocket: Union[WebSocketServerProtocol, "FastAPIWebSocket"]):
         """Register a new client connection."""
         self.clients.add(websocket)
         print(f"✓ Client connected. Total clients: {len(self.clients)}")
@@ -32,9 +38,18 @@ class WebSocketStreamer(StreamingExporter):
             "units": self.get_units_info(),
             "fps": self.target_fps
         }
-        await websocket.send(json.dumps(initial_data))
+        await self._send_to_client(websocket, json.dumps(initial_data))
     
-    async def unregister_client(self, websocket: WebSocketServerProtocol):
+    async def _send_to_client(self, websocket: Union[WebSocketServerProtocol, "FastAPIWebSocket"], message: str):
+        """Send message to client, handling both websocket types."""
+        if FastAPIWebSocket and isinstance(websocket, FastAPIWebSocket):
+            # FastAPI WebSocket
+            await websocket.send_text(message)
+        else:
+            # websockets library WebSocket
+            await websocket.send(message)
+    
+    async def unregister_client(self, websocket: Union[WebSocketServerProtocol, "FastAPIWebSocket"]):
         """Unregister a client connection."""
         self.clients.discard(websocket)
         print(f"✗ Client disconnected. Total clients: {len(self.clients)}")
@@ -54,22 +69,24 @@ class WebSocketStreamer(StreamingExporter):
         disconnected = set()
         for client in self.clients:
             try:
-                await client.send(message)
-            except websockets.exceptions.ConnectionClosed:
+                await self._send_to_client(client, message)
+            except Exception as e:
+                # Handle both websockets.exceptions.ConnectionClosed and FastAPI disconnections
+                print(f"Client disconnected: {e}")
                 disconnected.add(client)
         
         # Clean up disconnected clients
         for client in disconnected:
             await self.unregister_client(client)
     
-    async def handle_client_message(self, websocket: WebSocketServerProtocol, message: str):
+    async def handle_client_message(self, websocket: Union[WebSocketServerProtocol, "FastAPIWebSocket"], message: str):
         """Handle messages from clients."""
         try:
             data = json.loads(message)
             msg_type = data.get("type")
             
             if msg_type == "ping":
-                await websocket.send(json.dumps({"type": "pong"}))
+                await self._send_to_client(websocket, json.dumps({"type": "pong"}))
             elif msg_type == "request_metadata":
                 metadata = {
                     "type": "metadata",
@@ -77,7 +94,7 @@ class WebSocketStreamer(StreamingExporter):
                     "units": self.get_units_info(),
                     "fps": self.target_fps
                 }
-                await websocket.send(json.dumps(metadata))
+                await self._send_to_client(websocket, json.dumps(metadata))
             else:
                 print(f"Unknown message type: {msg_type}")
                 
@@ -108,11 +125,19 @@ class WebSocketStreamer(StreamingExporter):
             while self.is_streaming:
                 loop_start = time.time()
                 
-                # Get next frame data
-                frame_data = self.get_next_frame()
-                
-                # Broadcast to all clients
-                await self.broadcast_frame(frame_data)
+                try:
+                    # Get next frame data
+                    frame_data = self.get_next_frame()
+                    print(f"🎬 Generated frame {frame_data.get('frame', '?')} at time {frame_data.get('time', '?')}")
+                    
+                    # Broadcast to all clients
+                    await self.broadcast_frame(frame_data)
+                    
+                except Exception as e:
+                    import traceback
+                    print(f"❌ Error getting/broadcasting frame: {e}")
+                    print(f"Full traceback: {traceback.format_exc()}")
+                    break
                 
                 # Calculate how long to sleep to maintain target FPS
                 elapsed = time.time() - loop_start
@@ -125,7 +150,9 @@ class WebSocketStreamer(StreamingExporter):
                     pass
                     
         except Exception as e:
+            import traceback
             print(f"❌ Error in streaming loop: {e}")
+            print(f"Full traceback: {traceback.format_exc()}")
         finally:
             self.stop_streaming()
             print("🛑 Streaming loop stopped")
