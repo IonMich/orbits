@@ -1,6 +1,6 @@
 import { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stars, Text } from '@react-three/drei';
+import { OrbitControls, Stars, Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import * as OrbitTypes from '../../types/orbit';
 
@@ -15,7 +15,6 @@ interface AstroBodyProps {
 
 function AstroBody({ object, position, scale = 1 }: AstroBodyProps) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const textRef = useRef<THREE.Group>(null);
   
   // Check if this is a star/sun
   const isStar = object.name.toLowerCase().includes('sun') || object.name.toLowerCase().includes('star');
@@ -57,11 +56,6 @@ function AstroBody({ object, position, scale = 1 }: AstroBodyProps) {
         meshRef.current.scale.setScalar(pulseFactor);
       }
     }
-    
-    // Make text always face the camera (billboard effect)
-    if (textRef.current) {
-      textRef.current.lookAt(state.camera.position);
-    }
   });
 
   return (
@@ -97,8 +91,8 @@ function AstroBody({ object, position, scale = 1 }: AstroBodyProps) {
         </mesh>
       )}
       
-      {/* Object label */}
-      <group ref={textRef} position={[0, radius + 0.1, 0]}>
+      {/* Object label - always faces camera */}
+      <Billboard position={[0, radius + 0.1, 0]}>
         <Text
           fontSize={0.05}
           color="white"
@@ -107,7 +101,7 @@ function AstroBody({ object, position, scale = 1 }: AstroBodyProps) {
         >
           {object.name}
         </Text>
-      </group>
+      </Billboard>
     </group>
   );
 }
