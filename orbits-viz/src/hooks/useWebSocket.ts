@@ -9,6 +9,7 @@ type UnitsInfo = OrbitTypes.UnitsInfo;
 interface UseWebSocketOptions {
   url: string;
   autoConnect?: boolean;
+  simulationType?: 'earth-sun' | 'solar-system' | 'random';
 }
 
 interface UseWebSocketReturn {
@@ -21,9 +22,10 @@ interface UseWebSocketReturn {
   connect: () => void;
   disconnect: () => void;
   sendMessage: (message: any) => void;
+  requestSimulation: (type: 'earth-sun' | 'solar-system' | 'random') => void;
 }
 
-export function useWebSocket({ url, autoConnect = false }: UseWebSocketOptions): UseWebSocketReturn {
+export function useWebSocket({ url, autoConnect = false, simulationType }: UseWebSocketOptions): UseWebSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [objects, setObjects] = useState<AstroObject[] | null>(null);
@@ -35,8 +37,14 @@ export function useWebSocket({ url, autoConnect = false }: UseWebSocketOptions):
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
       return;
+    }
+
+    // Clean up any existing connection first
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
 
     setIsConnecting(true);
@@ -107,6 +115,8 @@ export function useWebSocket({ url, autoConnect = false }: UseWebSocketOptions):
 
       ws.onerror = (event) => {
         console.error('WebSocket error:', event);
+        console.error('WebSocket readyState:', ws.readyState);
+        console.error('WebSocket URL:', ws.url);
         setError('WebSocket connection error');
         setIsConnecting(false);
       };
@@ -139,15 +149,44 @@ export function useWebSocket({ url, autoConnect = false }: UseWebSocketOptions):
     }
   }, []);
 
+  const requestSimulation = useCallback((type: 'earth-sun' | 'solar-system' | 'random') => {
+    sendMessage({
+      type: 'change_simulation',
+      simulation_type: type
+    });
+  }, [sendMessage]);
+
   useEffect(() => {
-    if (autoConnect) {
-      connect();
+    let mounted = true;
+    
+    if (autoConnect && mounted) {
+      // Small delay to prevent React development mode double-mounting issues
+      const timer = setTimeout(() => {
+        if (mounted) {
+          connect();
+        }
+      }, 100);
+      
+      return () => {
+        mounted = false;
+        clearTimeout(timer);
+        disconnect();
+      };
     }
 
     return () => {
+      mounted = false;
       disconnect();
     };
   }, [autoConnect, connect, disconnect]);
+
+  // Send simulation type request when simulationType changes
+  useEffect(() => {
+    if (isConnected && simulationType) {
+      requestSimulation(simulationType);
+    }
+  }, [isConnected, simulationType, requestSimulation]);
+
 
   return {
     isConnected,
@@ -159,5 +198,6 @@ export function useWebSocket({ url, autoConnect = false }: UseWebSocketOptions):
     connect,
     disconnect,
     sendMessage,
+    requestSimulation,
   };
 }

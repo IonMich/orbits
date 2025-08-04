@@ -115,6 +115,10 @@ def main():
     # Create the OrbitServer (includes built-in streaming WebSocket support)
     server = default_system.serve(host="localhost", port=8000)
     
+    # Store initial state for the default system
+    if hasattr(server, 'streamer') and server.streamer:
+        server.streamer._initial_phase_space = default_system.phase_space.copy()
+    
     # Add CORS middleware for frontend access
     server.app.add_middleware(
         CORSMiddleware,
@@ -128,7 +132,7 @@ def main():
     create_simulation_endpoints(server)
     
     print("📡 Available endpoints:")
-    print("    Pre-computed simulations:")
+    print("    Full orbit computations:")
     print("      http://localhost:8000/api/simulation/earth-sun")
     print("      http://localhost:8000/api/simulation/solar-system")
     print("      http://localhost:8000/api/simulation/random")

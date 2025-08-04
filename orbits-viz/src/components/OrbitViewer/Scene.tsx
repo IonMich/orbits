@@ -41,8 +41,9 @@ function AstroBody({ object, position, scale = 1 }: AstroBodyProps) {
     return '#ffffff';
   }, [object.color, isStar]);
 
-  // Scale based on object radius, with minimum size for visibility
-  const radius = Math.max(object.radius * scale, 0.02);
+  // Scale based on object radius, with much smaller default for visualization
+  // Astronomical objects are huge - we need tiny scaling for nice visualization
+  const radius = Math.max(object.radius * scale * 0.01, 0.003);
 
   useFrame((state) => {
     if (meshRef.current) {

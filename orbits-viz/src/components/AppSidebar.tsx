@@ -33,10 +33,11 @@ import * as OrbitTypes from '../types/orbit';
 type SimulationControls = OrbitTypes.SimulationControls;
 
 interface AppSidebarProps {
-  mode: 'non-streaming' | 'streaming' | 'file';
-  onModeChange: (mode: 'non-streaming' | 'streaming' | 'file') => void;
+  mode: 'streaming' | 'file';
+  onModeChange: (mode: 'streaming' | 'file') => void;
   simulationType?: 'earth-sun' | 'solar-system' | 'random';
   onSimulationTypeChange?: (type: 'earth-sun' | 'solar-system' | 'random') => void;
+  isChangingSimulation?: boolean;
   controls: SimulationControls;
   onControlsChange: (controls: Partial<SimulationControls>) => void;
   showTrails: boolean;
@@ -63,6 +64,7 @@ export function AppSidebar({
   onModeChange,
   simulationType = 'earth-sun',
   onSimulationTypeChange,
+  isChangingSimulation = false,
   controls,
   showTrails,
   onShowTrailsChange,
@@ -100,18 +102,6 @@ export function AppSidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton 
-                  onClick={() => onModeChange('non-streaming')}
-                  isActive={mode === 'non-streaming'}
-                  className="flex items-center gap-2"
-                >
-                  <Database className="w-4 h-4" />
-                  <span>Pre-computed</span>
-                  {mode === 'non-streaming' && <Badge variant="secondary" className="ml-auto">Active</Badge>}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              
-              <SidebarMenuItem>
-                <SidebarMenuButton 
                   onClick={() => onModeChange('streaming')}
                   isActive={mode === 'streaming'}
                   className="flex items-center gap-2"
@@ -129,7 +119,7 @@ export function AppSidebar({
                   className="flex items-center gap-2"
                 >
                   <Settings className="w-4 h-4" />
-                  <span>Load File</span>
+                  <span>Load Orbit</span>
                   <Badge variant="outline" className="ml-auto">Soon</Badge>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -139,8 +129,8 @@ export function AppSidebar({
 
         <Separator />
 
-        {/* Simulation Type (Non-streaming mode only) */}
-        {mode === 'non-streaming' && (
+        {/* Simulation Type (Streaming mode only) */}
+        {mode === 'streaming' && (
           <>
             <SidebarGroup>
               <SidebarGroupLabel>Simulation Type</SidebarGroupLabel>
@@ -150,11 +140,16 @@ export function AppSidebar({
                     <SidebarMenuButton 
                       onClick={() => onSimulationTypeChange?.('earth-sun')}
                       isActive={simulationType === 'earth-sun'}
+                      disabled={isChangingSimulation}
                       className="flex items-center gap-2"
                     >
                       <span className="text-blue-500">🌍</span>
                       <span>Earth-Sun System</span>
-                      {simulationType === 'earth-sun' && <Badge variant="secondary" className="ml-auto">Active</Badge>}
+                      {isChangingSimulation && simulationType === 'earth-sun' ? (
+                        <div className="ml-auto animate-spin rounded-full h-4 w-4 border border-muted-foreground border-t-transparent"></div>
+                      ) : simulationType === 'earth-sun' && (
+                        <Badge variant="secondary" className="ml-auto">Active</Badge>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   
@@ -162,11 +157,16 @@ export function AppSidebar({
                     <SidebarMenuButton 
                       onClick={() => onSimulationTypeChange?.('solar-system')}
                       isActive={simulationType === 'solar-system'}
+                      disabled={isChangingSimulation}
                       className="flex items-center gap-2"
                     >
                       <span className="text-yellow-500">☀️</span>
                       <span>Our Solar System</span>
-                      {simulationType === 'solar-system' && <Badge variant="secondary" className="ml-auto">Active</Badge>}
+                      {isChangingSimulation && simulationType === 'solar-system' ? (
+                        <div className="ml-auto animate-spin rounded-full h-4 w-4 border border-muted-foreground border-t-transparent"></div>
+                      ) : simulationType === 'solar-system' && (
+                        <Badge variant="secondary" className="ml-auto">Active</Badge>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
 
@@ -174,11 +174,16 @@ export function AppSidebar({
                     <SidebarMenuButton 
                       onClick={() => onSimulationTypeChange?.('random')}
                       isActive={simulationType === 'random'}
+                      disabled={isChangingSimulation}
                       className="flex items-center gap-2"
                     >
                       <span className="text-purple-500">🎲</span>
                       <span>Random System</span>
-                      {simulationType === 'random' && <Badge variant="secondary" className="ml-auto">Active</Badge>}
+                      {isChangingSimulation && simulationType === 'random' ? (
+                        <div className="ml-auto animate-spin rounded-full h-4 w-4 border border-muted-foreground border-t-transparent"></div>
+                      ) : simulationType === 'random' && (
+                        <Badge variant="secondary" className="ml-auto">Active</Badge>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>
@@ -188,36 +193,7 @@ export function AppSidebar({
           </>
         )}
 
-        {/* Backend Status (Non-streaming mode only) */}
-        {mode === 'non-streaming' && (
-          <>
-            <SidebarGroup>
-              <SidebarGroupLabel>Backend Status</SidebarGroupLabel>
-              <SidebarGroupContent className="px-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge variant={backendError ? 'destructive' : 'default'} className="flex items-center gap-1">
-                    {backendError ? <WifiOff className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
-                    {backendError ? 'Unavailable' : 'Ready'}
-                  </Badge>
-                  {isLoadingSimulation && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <div className="animate-spin rounded-full h-3 w-3 border border-muted-foreground border-t-transparent"></div>
-                      Computing...
-                    </div>
-                  )}
-                </div>
-                {backendError && (
-                  <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
-                    Python server not running
-                  </div>
-                )}
-              </SidebarGroupContent>
-            </SidebarGroup>
-            <Separator />
-          </>
-        )}
-
-        {/* Connection Status (Streaming mode only) */}
+        {/* Connection Status */}
         {mode === 'streaming' && (
           <>
             <SidebarGroup>
@@ -256,12 +232,6 @@ export function AppSidebar({
               <span className="text-muted-foreground">Time:</span>
               <span className="font-mono">{controls.currentTime.toFixed(1)} days</span>
             </div>
-            {mode === 'non-streaming' && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Frame:</span>
-                <span className="font-mono">{controls.currentFrame} / {controls.totalFrames}</span>
-              </div>
-            )}
           </SidebarGroupContent>
         </SidebarGroup>
 
@@ -292,19 +262,6 @@ export function AppSidebar({
               </Button>
             </div>
 
-            {/* Timeline Scrubber (Non-streaming mode only) */}
-            {mode === 'non-streaming' && controls.totalFrames > 0 && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Timeline</label>
-                <Slider
-                  value={[controls.currentFrame]}
-                  onValueChange={([value]) => onFrameChange(value)}
-                  max={controls.totalFrames - 1}
-                  step={1}
-                  className="w-full"
-                />
-              </div>
-            )}
 
             {/* Speed Control */}
             <div className="space-y-2">

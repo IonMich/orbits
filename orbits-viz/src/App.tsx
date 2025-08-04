@@ -9,9 +9,8 @@ type TrajectoryData = OrbitTypes.TrajectoryData;
 type SimulationControls = OrbitTypes.SimulationControls;
 
 function App() {
-  const [mode, setMode] = useState<'non-streaming' | 'streaming' | 'file'>('non-streaming');
-  const [simulationType, setSimulationType] = useState<'earth-sun' | 'solar-system' | 'random'>('earth-sun');
-  const [precomputedData, setPrecomputedData] = useState<TrajectoryData | null>(null);
+  const [mode, setMode] = useState<'streaming' | 'file'>('streaming');
+  const [simulationType, setSimulationType] = useState<'earth-sun' | 'solar-system' | 'random'>('solar-system');
   const [showTrails, setShowTrails] = useState(true);
   const [scale, setScale] = useState(1);
   const [trails, setTrails] = useState<Map<number, [number, number, number][]>>(new Map());
@@ -19,6 +18,7 @@ function App() {
   // Backend connection state
   const [backendError, setBackendError] = useState<string | null>(null);
   const [isLoadingSimulation, setIsLoadingSimulation] = useState(false);
+  const [isChangingSimulation, setIsChangingSimulation] = useState(false);
   
   // Simulation state
   const [controls, setControls] = useState<SimulationControls>({
@@ -37,122 +37,47 @@ function App() {
     latestFrame: streamingFrame,
     error: streamingError,
     connect,
-    disconnect
+    disconnect,
+    requestSimulation,
+    sendMessage
   } = useWebSocket({ 
     url: 'ws://localhost:8000/ws', 
-    autoConnect: mode === 'streaming' 
+    autoConnect: mode === 'streaming',
+    simulationType: simulationType
   });
 
-  // Fetch pre-computed simulation data from Python backend
-  const fetchSimulationData = async (type: 'earth-sun' | 'solar-system' | 'random'): Promise<TrajectoryData> => {
-    const apiEndpoints = {
-      'earth-sun': 'http://localhost:8000/api/simulation/earth-sun',
-      'solar-system': 'http://localhost:8000/api/simulation/solar-system', 
-      'random': 'http://localhost:8000/api/simulation/random'
-    };
 
-    setIsLoadingSimulation(true);
-    setBackendError(null);
+  // Use streaming objects as data source
+  const objects = streamingObjects || [];
 
-    try {
-      const response = await fetch(apiEndpoints[type]);
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setBackendError(null); // Clear any previous errors
-      return data;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setBackendError(`Backend unavailable: ${errorMessage}`);
-      throw error;
-    } finally {
-      setIsLoadingSimulation(false);
-    }
-  };
-
-  // Determine data source based on mode
-  const objects = (() => {
-    if (mode === 'streaming' && streamingObjects) {
-      return streamingObjects;
-    }
-    return precomputedData?.objects || [];
-  })();
-
-  const currentFrame = (() => {
-    if (mode === 'streaming' && streamingFrame) {
-      return streamingFrame;
-    }
-    if (precomputedData?.trajectory && controls.currentFrame < precomputedData.trajectory.length) {
-      return precomputedData.trajectory[controls.currentFrame];
-    }
-    return null;
-  })();
+  // Use streaming frame as current frame
+  const currentFrame = streamingFrame;
 
   // Handle mode changes
-  const handleModeChange = useCallback(async (newMode: 'non-streaming' | 'streaming' | 'file') => {
+  const handleModeChange = useCallback(async (newMode: 'streaming' | 'file') => {
     setMode(newMode);
     setTrails(new Map()); // Clear trails when switching modes
     
-    if (newMode === 'non-streaming') {
-      try {
-        console.log(`Fetching ${simulationType} simulation data from backend...`);
-        const data = await fetchSimulationData(simulationType);
-        console.log(`✓ Loaded ${simulationType} simulation from backend`);
-        setPrecomputedData(data);
-      } catch (error) {
-        console.error(`❌ Failed to load ${simulationType} simulation:`, error);
-        setPrecomputedData(null);
-      }
-    } else {
-      // Clear backend error when switching to streaming mode
-      setBackendError(null);
-    }
-  }, [simulationType]);
+    // Clear backend error when switching modes
+    setBackendError(null);
+  }, []);
 
   // Handle simulation type changes
   const handleSimulationTypeChange = useCallback(async (newType: 'earth-sun' | 'solar-system' | 'random') => {
     setSimulationType(newType);
     
-    if (mode === 'non-streaming') {
-      try {
-        console.log(`Fetching ${newType} simulation data from backend...`);
-        const data = await fetchSimulationData(newType);
-        console.log(`✓ Loaded ${newType} simulation from backend`);
-        setPrecomputedData(data);
-        
-        setTrails(new Map()); // Clear trails when switching simulation types
-        setControls(prev => ({
-          ...prev,
-          isPlaying: false,
-          currentFrame: 0,
-          currentTime: 0
-        }));
-      } catch (error) {
-        console.error(`❌ Failed to load ${newType} simulation:`, error);
-        setPrecomputedData(null);
-      }
+    // Show loading state (especially important for solar-system with Horizons API)
+    setIsChangingSimulation(true);
+    
+    // Clear trails immediately when starting to switch
+    setTrails(new Map());
+    
+    // Request new simulation type via WebSocket if connected
+    if (isConnected) {
+      requestSimulation(newType);
     }
-  }, [mode]);
+  }, [isConnected, requestSimulation]);
 
-  // Initialize precomputed data on first load
-  useEffect(() => {
-    if (mode === 'non-streaming' && !precomputedData) {
-      handleSimulationTypeChange(simulationType);
-    }
-  }, [mode, precomputedData, simulationType, handleSimulationTypeChange]);
-
-  // Initialize total frames for non-streaming mode
-  useEffect(() => {
-    if (mode === 'non-streaming' && precomputedData?.trajectory) {
-      setControls(prev => ({
-        ...prev,
-        totalFrames: precomputedData.trajectory.length,
-        currentTime: precomputedData.trajectory[0]?.time || 0
-      }));
-    }
-  }, [mode, precomputedData?.trajectory]);
 
   // Handle streaming frame updates
   useEffect(() => {
@@ -165,9 +90,18 @@ function App() {
     }
   }, [mode, streamingFrame]);
 
-  // Update trails when frame changes
+  // Stop loading when new objects arrive (simulation changed successfully)
   useEffect(() => {
-    if (currentFrame && objects.length > 0) {
+    if (streamingObjects && streamingObjects.length > 0 && isChangingSimulation) {
+      setIsChangingSimulation(false);
+      // Clear trails again to ensure clean start with new simulation
+      setTrails(new Map());
+    }
+  }, [streamingObjects, isChangingSimulation]);
+
+  // Update trails when frame changes AND simulation is playing
+  useEffect(() => {
+    if (currentFrame && objects.length > 0 && controls.isPlaying) {
       setTrails(prevTrails => {
         const newTrails = new Map(prevTrails);
         
@@ -177,12 +111,7 @@ function App() {
             const existingTrail = newTrails.get(object.id) || [];
             const updatedTrail = [...existingTrail, position];
             
-            // Limit trail length for performance
-            const maxTrailLength = 1000;
-            if (updatedTrail.length > maxTrailLength) {
-              updatedTrail.splice(0, updatedTrail.length - maxTrailLength);
-            }
-            
+            // No trail length limit - let trails grow indefinitely
             newTrails.set(object.id, updatedTrail);
           }
         });
@@ -190,63 +119,56 @@ function App() {
         return newTrails;
       });
     }
-  }, [currentFrame, objects]);
+  }, [currentFrame, objects, controls.isPlaying]);
 
-  // Animation loop for non-streaming mode
-  useEffect(() => {
-    if (mode !== 'non-streaming' || !controls.isPlaying || !precomputedData?.trajectory) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setControls(prev => {
-        const nextFrame = prev.currentFrame + prev.speed;
-        if (nextFrame >= prev.totalFrames) {
-          return { ...prev, isPlaying: false, currentFrame: prev.totalFrames - 1 };
-        }
-        
-        const frameData = precomputedData.trajectory[Math.floor(nextFrame)];
-        return {
-          ...prev,
-          currentFrame: Math.floor(nextFrame),
-          currentTime: frameData?.time || prev.currentTime
-        };
-      });
-    }, 50);
-
-    return () => clearInterval(interval);
-  }, [controls.isPlaying, controls.speed, mode, precomputedData?.trajectory]);
+  // Don't auto-start playback - let user control when to play
 
   // Control handlers
   const handlePlayPause = useCallback(() => {
-    setControls(prev => ({ ...prev, isPlaying: !prev.isPlaying }));
-  }, []);
+    const newIsPlaying = !controls.isPlaying;
+    setControls(prev => ({ ...prev, isPlaying: newIsPlaying }));
+    
+    // Send play/pause command to WebSocket
+    if (isConnected) {
+      sendMessage({ type: newIsPlaying ? 'play' : 'pause' });
+    }
+  }, [controls.isPlaying, isConnected, sendMessage]);
 
   const handleReset = useCallback(() => {
+    // Clear trails immediately
+    setTrails(new Map());
+    
+    // Send reset command to WebSocket (backend will auto-pause)
+    if (isConnected) {
+      sendMessage({ type: 'reset' });
+    }
+    
+    // Update frontend state to match backend (paused, reset time/frame)
     setControls(prev => ({
       ...prev,
       isPlaying: false,
       currentFrame: 0,
-      currentTime: precomputedData?.trajectory?.[0]?.time || 0
+      currentTime: 0
     }));
-    setTrails(new Map());
-  }, [precomputedData?.trajectory]);
+  }, [isConnected, sendMessage]);
 
   const handleFrameChange = useCallback((newFrame: number) => {
-    if (mode === 'non-streaming') {
-      const frameData = precomputedData?.trajectory?.[newFrame];
-      setControls(prev => ({
-        ...prev,
-        currentFrame: newFrame,
-        currentTime: frameData?.time || prev.currentTime,
-        isPlaying: false
-      }));
-    }
-  }, [mode, precomputedData?.trajectory]);
+    // Frame changes are handled by streaming data
+    setControls(prev => ({
+      ...prev,
+      currentFrame: newFrame,
+      isPlaying: false
+    }));
+  }, []);
 
   const handleSpeedChange = useCallback((newSpeed: number) => {
     setControls(prev => ({ ...prev, speed: newSpeed }));
-  }, []);
+    
+    // Send speed change command to WebSocket
+    if (isConnected) {
+      sendMessage({ type: 'set_speed', speed: newSpeed });
+    }
+  }, [isConnected, sendMessage]);
 
   return (
     <SidebarProvider>
@@ -256,6 +178,7 @@ function App() {
           onModeChange={handleModeChange}
           simulationType={simulationType}
           onSimulationTypeChange={handleSimulationTypeChange}
+          isChangingSimulation={isChangingSimulation}
           controls={controls}
           onControlsChange={(partial) => setControls(prev => ({ ...prev, ...partial }))}
           showTrails={showTrails}
@@ -283,73 +206,13 @@ function App() {
           
           {/* Full-screen Three.js visualization */}
           <div className="w-full h-full">
-            {objects.length > 0 && currentFrame ? (
-              <Scene
-                objects={objects}
-                currentFrame={currentFrame}
-                trails={trails}
-                showTrails={showTrails}
-                scale={scale}
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-                <div className="text-center space-y-4 max-w-lg mx-auto px-4">
-                  {/* Loading State */}
-                  {isLoadingSimulation && (
-                    <>
-                      <div className="text-6xl mb-4">⏳</div>
-                      <h2 className="text-2xl font-bold text-white">Loading Simulation</h2>
-                      <p className="text-slate-300">
-                        Computing orbital mechanics in Python backend...
-                      </p>
-                      <div className="flex justify-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                      </div>
-                    </>
-                  )}
-                  
-                  {/* Backend Error State */}
-                  {!isLoadingSimulation && backendError && mode === 'non-streaming' && (
-                    <>
-                      <div className="text-6xl mb-4">🔌</div>
-                      <h2 className="text-2xl font-bold text-red-400">Backend Unavailable</h2>
-                      <p className="text-slate-300">
-                        The Python simulation server is not running. Both Pre-computed and Streaming modes require the backend server.
-                      </p>
-                      <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-left">
-                        <p className="text-red-300 text-sm font-mono">
-                          {backendError}
-                        </p>
-                      </div>
-                      <div className="text-slate-400 text-sm space-y-2">
-                        <p>To start the backend server, run:</p>
-                        <code className="bg-slate-800 px-3 py-1 rounded text-green-400 text-xs">
-                          uv run python solar_system_server.py
-                        </code>
-                        <p>The same server handles both Pre-computed and Streaming modes.</p>
-                      </div>
-                      <button
-                        onClick={() => handleSimulationTypeChange(simulationType)}
-                        className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
-                      >
-                        🔄 Retry Connection
-                      </button>
-                    </>
-                  )}
-                  
-                  {/* Welcome State */}
-                  {!isLoadingSimulation && !backendError && (
-                    <>
-                      <div className="text-6xl mb-4">🌌</div>
-                      <h2 className="text-2xl font-bold text-white">Welcome to Orbits</h2>
-                      <p className="text-slate-300">
-                        Select a simulation mode from the sidebar: choose Pre-computed for complete simulations or Streaming for real-time physics
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+            <Scene
+              objects={objects}
+              currentFrame={currentFrame}
+              trails={trails}
+              showTrails={showTrails}
+              scale={scale}
+            />
           </div>
         </main>
       </div>
